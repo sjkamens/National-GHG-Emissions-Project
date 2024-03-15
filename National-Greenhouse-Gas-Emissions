@@ -3,6 +3,8 @@ This project was my first independent project utilising SQL, and was carried out
   1. To share my capabilities in writing SQL queries for data processing, cleaning, transformation, and validation.
   2. To develop a database for which I will use to analyse national greenhouse gas emissions trends, with a specific focus on assessing the current status of green growth, the idea that economic growth can be decouple from greenhouse gas emissions.
 
+Dataset ID: national-ghgs.national_ghg_timeseries
+
 I developed this database through the aggregation of data from several sources. See citations below.
 
 Ritchie, Hannah, Max Roser, Edouard Mathieu, Bobbie Macdonald, and Pablo Rosado. 2023. “CO₂ and Greenhouse Gas Emissions.” Our World in Data. https://github.com/owid/co2-data?tab=readme-ov-file.
