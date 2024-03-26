@@ -256,7 +256,7 @@ possible_gg_time_series %>%
   ggplot(aes(x = year, y = total_ghg)) +
   geom_line(color = "red") +
   facet_wrap(~ country, scales = "free") +
-  labs(y = "Total GHGs (Mt CO2-eq") +
+  labs(y = "Total GHGs (Mt CO2-eq)") +
   theme_bw()
 ```
 
@@ -502,6 +502,7 @@ for (country in unique(national_ghg_emissions_forecast$country)) {
 }
 ```
 
+#### Summary of Initial Forecasts
 The results of these forecasts can be summarized as follows. For each, the estimated GHG emissions in 2050 are provided, including the point forecast and the upper and lower estimates for the 80% and 95% intervals:
 
 **Denmark**
