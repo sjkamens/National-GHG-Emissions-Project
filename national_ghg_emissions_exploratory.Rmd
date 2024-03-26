@@ -1,0 +1,736 @@
+---
+title: "National Greenhouse Gas Emissions Exploratory Analysis"
+author: "Seth Kamens"
+date: "2024-03-23"
+output:
+  pdf_document:
+    toc: true
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = FALSE, warning = FALSE, message = FALSE)
+options(repos = "https://cran.rstudio.com/")
+```
+
+## Background
+This document contains an exploratory analysis on national greenhouse emissions data, focused on countries' trajectories towards net-zero emissions. Net zero is, as [defined by the UN](https://www.un.org/en/climatechange/net-zero-coalition), the "cutting [of] carbon emissions to a small amount of residual emissions that can be absorbed and durably stored by nature and other carbon dioxide removal measures, leaving zero in the atmosphere".
+
+The Paris Agreement has called for countries to reduce their national emissions 45% from 2010 levels by 2030, and to achieve net-zero by 2050. These targets, while ambitious, are also essential to slowing and, ultimately, halting the progression of climate change. Already, climate change is creating devastating impacts including increased temperatures, changing weather patterns, rising sea levels, increased occurrences of extreme weather events, migration crises, just to name a few. These impacts have already caused severe social and financial damages.
+
+In this analysis, I focus on trends related to national greenhouse gas (GHG) emissions, particularly focused on changes across the 2000-2020 time series. GHG emissions are typically measured in CO2-eq to provide a standardised measurement, as several gases are considered GHGs. They are standardised in CO2-eq using a global warming potential for each gas, which measures the amount of energy a unit of each GHG is able to absorb, standardised to the global warming potential of CO2. 
+
+Moreover, I take a closer look at they key indicators of green growth - GDP and GHG emissions. Green growth, currently a dominant paradigm within international climate policy and actions, is, at the most basic level, the decoupling of GHG emissions from economic growth. This means that a country that achieves green growth is one that is able to grow economically while reducing GHG emissions, with the ultimate vision that economic growth will be possible even without producing any emissions.
+
+In these analyses, I ultimately find that year-on-year national emissions reductions are fairly common. However, only a few countries have sustained such reductions on a consistent basis. Moreover, even among the countries that have sustained such emissions reductions in terms on total GHGs, these reductions are either deemed negligible once GHG emissions per capita and/or GHG emissions embedded in trade are considered. GHG emissions embedded in trade are the emissions during production of goods that are produced in one country but consumed in another, assigning the emissions of productions to the country that ends up consuming the goods.
+
+Moreover, I leverave an ARIMA model to generate forecasts of national GHG emissions embedded in trade of several countries of interest. These include countries that have consistently both reduced year-on-year GHG emissions and increased GDP, as well as countries among the top 20 emitting countries, as determined from total trade-embedded CO2-eq emissions over the 2000-2020 time series. These forecasts I generated provide 30-year forecasts for GHG emissions, ultimately helping to assess whether countries are currently on track to reach net-zero emissions by 2050. 
+
+Although these forecasts are limited by several factors, including only considering the outcome variable and not considering the breakdown of GHG emissions by sector or industry, they help to provide an indication of what is needed to achieve net-zero by 2050. Overall, it is clear that current trends are nowhere near enough to achieve net-zero and that substantially greater efforts are required in the very near future to right this path. Some of the main country-based insights include:
+
+- Of the top 20 GHG-emitting countries, only Canada is forecasted to achieve net-zero by 2050.
+
+- Of the top 20 GHG-emitting countries, only Argentina, Canada, France, Germany, and the United Kingdom are forecasted to reduce emissions at all over the 30-year horizon, yet only Canada is forecasted to reduce at a fast enough pace to achieve net-zero.
+
+- China, India, Iran, Japan, and Saudi Arabia are forecasted to increase their emissions over the 30-year horizon, with all but Japan forecasted to substantially increase emissions.
+
+## Introduction
+This R Markdown document is designed to share the steps I took during my exploratory analysis of the national greenhouse gas emissions data I developed, which is mainly sourced from "Our World In Data". A list of citations that provide the sources of all data is provided in the References section.
+
+This exploratory data analysis ultimately required the implementation of a variety of data analysis and R skills. I conducted this analysis both as a personal interest project to assess whether any countries are making progress towards achieving both green growth and net-zero by 2050, which is a commitment made by more than 140 Parties to the Paris Agreement. Parties are countries that have signed and ratified the Paris Agreement. 
+
+Recognising that the harmful impacts of climate change continue to manifest, and there is generally a perception that governments simply are not doing enough to tackle the issue of climate change and, therefore, are woefully underprepared to deal with the impacts, both realised and yet to come, a perception that I share, I wanted to dive into the data. Here, I look to see what, if any, progress is being made. I do this via exploratory analyses and basic forecasting of GHG emissions using an ARIMA model.
+
+Note that I expect this to be the first of many explorations, and I plan to dive further into the data via econometrics, ARIMAX models that make forecasts that factor in additional variables, and other more targeted statistical analyses.
+
+## Exploratory Analysis
+As explained, I first conducted an exploratory analysis of a dataset I developed using SQL (Big Query) mainly from the Our World in Data national GHG emissions dataset, supplemented with a series of datasets from the World Bank. The main features of this dataset preparation included the following activities:
+
+- Transforming the main dataset from wide to long format for more effective time series analysis
+
+- Data merging using JOIN functions to pull data from various World Bank datasets
+
+- Data cleaning to ensure a complete dataset and to ensure consistent schema
+
+- Data manipulation for the development of calculated columns
+
+### 1. Importing the Data
+Although there are methods to import directly from SQL, this required a paid Big Query account that I do not have access to. As a result, I chose to download as a .csv file and then import into R using the readr package.
+
+```{r install_readr, results = "hide"}
+library(readr)
+```
+
+```{r import_nationa_emissions_data}
+national_ghg_emissions <- read_csv("ghgs_time_series_9.csv")
+head(national_ghg_emissions)
+```
+
+### 2. Data Exploration
+I will start off by using the tidyverse package
+```{r install_tidyverse, results = "hide"}
+library(tidyverse)
+```
+
+For the first step, I wanted to take an overall look to see if any overarching trends could be seen in the GHG emissions data. Here, I just decided to make a line for each country, showing hows each country's GHG emissions evolved over time.
+
+```{r exploratory_plot1}
+ggplot(national_ghg_emissions, aes(year, total_ghg, group=country)) + geom_line() + geom_point()
+```
+
+It was obviously apparent that a few countries emitted substantial amounts of GHGs while most countries had much lower emissions. This was already known, though I had to make an adjustment as there was significant bunching at the bottom of the graph, below around 1 billion tonnes of CO2-eq emissions.Thus, the first thing I wanted to do was to look at emissions per capita to get a more normalized emissions profile for each country.
+
+```{r exploratory_plot_2}
+national_ghg_emissions <- national_ghg_emissions %>% 
+  mutate(total_ghg_per_capita = total_ghg / population)
+
+ggplot(national_ghg_emissions, aes(year, total_ghg_per_capita, group=country)) + 
+  geom_line() + geom_point()
+```
+
+Although better, there still is substantial bunching in the plot. A simple way to adjust for this was to include a facet for economic classification, as GHG emissions on a per capita basis are highly correlated to GDP. Initially I did not set scales = "free" but continued bunching necessitated it.
+
+```{r exploratory_plot3}
+ggplot(national_ghg_emissions, aes(year, total_ghg_per_capita, group=country)) + 
+  geom_line() + geom_point() + facet_wrap(~econ_class, scales="free")
+```
+ 
+While this has improved things slightly, it is still very difficult to see any major trends via these graphs. Moreover, there is apparently one country with an econ_class of "0" that was not initially caught as the major check for this column was for N/A values. I want to identify the source of this issue:
+
+```{r econ_class_0}
+no_econ_class <- national_ghg_emissions %>% 
+  filter(econ_class == 0) %>% 
+  select(country)
+print(no_econ_class)
+```
+
+It seems that Venezuela is the issue. I then ran the following code to verify that the issue only exists for venezuela, and the results confirmed it to be the case. To avoid cluttering, I have hidden the results.
+```{r econ_class_0_confirmation, results = "hide"}
+print(no_econ_class, n = 23)
+```
+
+As venezuala lacks information for economic classification, as well as for other data of interest, I used the following code to produce graphs that excluded Venezuela. I first converted the 0 to NA to better represent the lack of data.
+
+```{r exploratory_plot4}
+national_ghg_emissions <- national_ghg_emissions %>% 
+  mutate(econ_class = ifelse(econ_class == 0, NA, econ_class))
+
+national_ghg_emissions %>% 
+  filter(!is.na(econ_class)) %>% 
+  ggplot(aes(year, total_ghg_per_capita, group=country)) + 
+  geom_line() + geom_point() + facet_wrap(~econ_class, scales = "free")
+```
+
+These trends are ultimately showing that there are not many countries that seem to have obvious trends towards reducing their emissions. At least graphically, it is clear that, as a whole, most countries are probably not progressing towards green growth.
+
+### 3. Deeper Dive Into National Emissions
+Based on the initial plots, it seemed that there were no obvious trends towards emissions reductions, though the graphs were not great for visualizing such trends as a lot of information became obfuscated via bunching of data. 
+
+As a result of not really being able to rely on the GHG emissions trends as plotted by country, even while faceted by economic classification, I recognised I had to go a bit deeper into the data. 
+
+I recognised that, as I am mainly interested in seeing whether green growth is being achieved anywhere in the world, that assessing year-on-year emissions reductions and economic growth would be important. The data frame ultimately contained all the information I needed, but I also would need to create some calculated columns to better assess this.
+
+I used the following code to create calculated columns for annual changes in national emissions and GDP.
+
+```{r mutate_for_econ_and_emissions_growth}
+national_ghg_emissions <- national_ghg_emissions %>%
+  arrange(country, year) %>% 
+  group_by(country) %>% 
+  mutate(total_ghg_annual_chg = ifelse(total_ghg > 0, ((total_ghg - lag(total_ghg)) / lag(total_ghg))*100, NA),
+        total_ghg_per_capita_chg = ifelse(total_ghg_per_capita > 0,((total_ghg_per_capita - lag(total_ghg_per_capita)) / lag(total_ghg_per_capita))*100, NA),
+        gdp_2015_usd_chg = ifelse(gdp_2015_usd > 0, ((gdp_2015_usd - lag(gdp_2015_usd)) / lag(gdp_2015_usd))*100, NA),
+        gdp_2017_ppp_chg = ifelse(gdp_2017_ppp > 0, ((gdp_2017_ppp - lag(gdp_2017_ppp)) / lag(gdp_2017_ppp))*100, NA),
+        gdp_constant_lcu_chg = ifelse(gdp_constant_lcu > 0, ((gdp_constant_lcu - lag(gdp_constant_lcu)) / lag(gdp_constant_lcu))*100, NA),
+        gdp_current_usd_chg = ifelse(gdp_current_usd > 0, ((gdp_current_usd - lag(gdp_current_usd)) / lag(gdp_current_usd))*100, NA))
+```
+
+From here, I wanted to now use this data to assess whether there may be any evidence of green growth. A Simple way to do this was to simply plot, for all countries and for all years, GDP growth against emission growth. I added lines at x=0 and y=0 to easily produce four quadrants, which could be defined as follows:
+
+- Top Left: Increase in GHG emissions and decline in GDP
+
+- Top Right: Increase in both GHG emissions and GDP
+
+- Bottom Left: Reduction in both GHG emissions and GDP
+
+- Bottom Right: Reduction in GHG emissions with GDP increase
+
+Naturally, the points in the bottom right quadrant would be indicative of possible green growth in a single country in a single year. The point of this graph is to see if there might be any sort of trends towards green growth, or any other trends as it pertains to the relationship between GDP and GHG emissions changes.
+
+```{r green_growth_plot1}
+national_ghg_emissions %>% 
+  filter(!is.na(econ_class)) %>%
+  ggplot(aes(gdp_2015_usd_chg, total_ghg_per_capita_chg)) + 
+  geom_point() + geom_vline(xintercept = 0, linetype = "solid") +
+  geom_hline(yintercept = 0, linetype = "solid") +
+  facet_wrap(~econ_class, scales = "free") +
+  xlim(-50, 50) + 
+  ylim(-50, 50)
+```
+
+What these plots show is that there seems to be a heavy trend towards GDP growth, as would be expected. Thus, most points seem to be in the top and bottom right quadrants. This is encouraging, as there are numerous data points in the bottom right quadrant, indicating that there are many cases whereby a country both increased in GDP and reduced its per capita emissions over the course of a single year.
+
+However, these data points don't actually show whether any countries sustained consistent economic growth and emissions reductions at the same time. To identify whether any countries were able to do this, I then carried out of the following code.
+
+```{r green_growth_filter1}
+emissions_reductions <- national_ghg_emissions %>% 
+  group_by(country, econ_class) %>% 
+  filter(year >= 2000 & year <= 2020) %>% 
+  summarize(years_reduced = sum(total_ghg_per_capita_chg < 0, na.rm = TRUE),
+            years_econ_growth = sum(gdp_2015_usd_chg > 0, na.rm = TRUE)) %>% 
+  arrange(desc(years_reduced))
+head(emissions_reductions)
+```
+
+Now, I have a data frame that tells me how many years between 2000 and 2020, inclusive, that each country experienced a reduction in GHG emissions on a per capita basis and how many years each country experienced an increase in GDP.
+
+The following plot was created to identify any trends with respect to both economic growth and emissions reductions. The lines y x=10 and y=10 indicate the halfway points, whereby any point in either of the right quadrants indicates a country that has had economic growth in over half of the years in the time series and any point in either of the top quadrants indicates a country that has reduced emissions per capita in over half of the years in the time series.
+
+For clarity, the top right quadrant would indicate countries that have increased GDP and reduced emissions in at least half of the years of the time series.
+
+Note that position = "jitter" is used as some data points were possibly overlapping.
+
+```{r green_growth_plot2}
+gg_plot2 <- emissions_reductions %>% 
+  filter(!is.na(econ_class)) %>%
+  ggplot(aes(years_econ_growth, years_reduced)) + 
+  geom_point(position="jitter") + 
+  geom_vline(xintercept = 10, linetype = "solid") +
+  geom_hline(yintercept = 10, linetype = "solid") +
+  facet_wrap(~econ_class)
+gg_plot2
+```
+  
+These plots show that there seems to be signficant trends of countries with economic growth and emissions reductions. Some key insights from these plots include:
+
+- The economic classification with the most countries headed in the direction of green growth are low income countries, for which emissions are typically comparatively low.
+
+- Upper middle income countries seem to be lagging in terms of emissions reductions, with most visible data points in the bottom right quadrant.
+
+- Based on the visual, it seems that high income and lower middle income countries are largely split between being above and below the y=10 line
+
+- The worst results for individual countries occur among the high-income countries, whereby there are 16 countries that have not had a single year with reductions in emissions per capita. Only three other countries in the other economic classifications combined, all upper middle income countries, have managed to have increased emissions in every single year from 2000-2020.
+
+### 4. Which Countries are Trending Towards Green Growth?
+After seeing the results that show the general trends towards green growth among all countries, I wanted to see, now, which countries are consistently reducing emissions and growing economically, in terms of GDP growth. Thus, I set a filter to find the countries that have, in the 2000-2020 time series, reduced emissions in at least 15 years as well as increased GDP in at least 15 years.
+
+```{r possible_gg_fullseries}
+possible_green_growth <- emissions_reductions %>% 
+  filter(years_reduced > 15 & years_econ_growth > 15)
+possible_green_growth
+```
+
+What we have here now is just a small list of 8 eight countries. Now, I want to take a closer look at what these countries are doing. For reference, gg in the name of the new data frame refers to green growth.
+
+```{r create_fulltimeseries_gg}
+possible_gg_time_series <- national_ghg_emissions %>% 
+  filter(country %in% possible_green_growth$country)
+```
+
+Now, I will look at both the GHG emissions and GDP trends of each of these 8 countries across the 2000-2020 time series.
+
+```{r gg_gdp_plot1}
+possible_gg_time_series %>%
+  ggplot(aes(x = year, y = gdp_2015_usd)) +
+  geom_bar(stat = "identity", color = "grey") +
+  facet_wrap(~ country, scales="free") +
+  labs(y = "GDP 2015 (USD)") +
+  theme_bw()
+```
+
+
+```{r gg_ghg_plot1}
+possible_gg_time_series %>%
+  ggplot(aes(x = year, y = total_ghg_per_capita)) +
+  geom_line(color = "red") +
+  facet_wrap(~ country, scales = "free") +
+  labs(y = "Total GHG Per Capita") +
+  theme_bw()
+``` 
+
+As the criteria for selecting these countries would indicate, these countries all exhibit consistent trends in both year-on-year GDP increases and reductions in GHG emissions per capita. However, the reduction of total emissions is also essential for green growth, which must also be evaluated as population growth along with reductions in emissions per capita can still lead to increased overall emissions.
+
+```{r gg_total_ghg_plot1}
+possible_gg_time_series %>%
+  ggplot(aes(x = year, y = total_ghg)) +
+  geom_line(color = "red") +
+  facet_wrap(~ country, scales = "free") +
+  labs(y = "Total GHGs (Mt CO2-eq") +
+  theme_bw()
+```
+
+Here, we now see that these 8 countries fall into three categories:
+
+  - Total GHG Emissions Increased: Democratic Republic of the Congo (DRC)
+  
+  - Total GHG Emissions Stable: Cameroon, Cote d'Ivoire
+  
+  - Total GHG Emissions Reduced: Ireland, Madagascar, Netherlands, Sweden, United Kingdom
+
+However, we also have the issue of GHG emissions embedded in trade, which is often not considered. Effectively, what is meant by this is that national GHG emissions are typically estimated by accounting for the emission-producing activities occurring within a country's borders. The challenge with this is that this does not account for the emissions that go into the production of goods in a country that are consumed in another country (the production emissions will count only towards the emissions of the country that produced the goods).
+
+While it may be a controversial belief and certainly is not in line with mainstream national GHG emissions accounting (if it were, it would be part of regular reporting to the UNFCCC), I believe that these emissions embedded in trade must be accounted for. 
+
+Why? Because I do not believe, for example, that offshoring production of good should be a mean of reducing national GHG emissions. Ultimately, what matters most are the total emissions produced on a global scale - the climate change impacts of GHGs largely do not care where GHGs come from. If consumption is not reduced, the GHGs are still produced. Moreover, this borders on environmental colonialism, as production does more than produce GHGs - it also can produce other harmful pollutants that reduce air quality, which can lead to the exporting of other negative environmental impacts. 
+
+Keeping my logic in mind, I have decided to consider these trade-embedded emissions before being able to say a country has definitely been reducing emissions consistently. To do this, I must add a calculated column that considers trade embedded emissions in addition to the total GHGs.
+
+```{r gg_trade_emissions_plot1}
+possible_gg_time_series <- possible_gg_time_series %>%
+  mutate(total_ghgs_with_trade = if_else(is.na(trade_co2),total_ghg, total_ghg + trade_co2))
+
+possible_gg_time_series %>%
+  ggplot(aes(x = year, y = total_ghgs_with_trade)) +
+  geom_line(color = "red") +
+  facet_wrap(~ country, scales = "free") +
+  labs(y = "Total GHGs Including Trade (Mt CO2-eq)") +
+  theme_bw()
+```
+
+What we now see is that while most of the countries have very similar trends even when accounting for trade, the Netherlands no longer appears to have been reducing emissions consistently. While there does seem to be a clear trend from 2010 through 2020, the first ten years of the time series actually show an early increase followed by a relative stabilisation of GHG emissions.
+
+What does this mean? It is likely that the Netherlands engaged in some sort of offshoring of production in the early 2000s, whereby local production for consumption was replaced by imports - thus national emissions were reduced without substantial reductions in consumption. However, this is just one hypothesis that can account for this type of deviation and a more in-depth analysis would be required to identify specific contributing or causal mechanisms for this phenomenon.
+
+#### 4a. Shortening the Time Series
+As we have seen that even when accounting for trade, the Netherlands appears to be trending towards reducing total emissions since 2010, there are likely to be other countries that may not have met the criteria for consistent emissions reductions and economic growth for the full time series yet are currently trending towards green growth. To see the more recent trends, I decided to perform the same analyses as before but using only the data from 2010-2020.
+
+This code creates a data frame that shows how many years each country has had a year-on-year reduction in GHG emissions on a per capita basis or has increased its GDP.
+```{r recent_gg}
+recent_emissions_reductions <- national_ghg_emissions %>% 
+  filter(year >= 2010 & year <= 2020) %>% 
+  group_by(country, econ_class) %>% 
+  summarize(years_reduced = sum(total_ghg_per_capita_chg < 0, na.rm = TRUE),
+            years_econ_growth = sum(gdp_2015_usd_chg > 0, na.rm = TRUE)) %>% 
+  arrange(desc(years_reduced))
+```
+
+From here, I want to quickly assess the trends. I also will compare it to the same plot for the full time series to identify any differences.
+```{r recent_gg_trend_plot}
+recent_emissions_reductions %>% 
+  filter(!is.na(econ_class)) %>%
+  ggplot(aes(years_econ_growth, years_reduced)) + 
+  geom_point(position = "jitter") + 
+  geom_vline(xintercept = 5, linetype = "solid") +
+  geom_hline(yintercept = 5, linetype = "solid") +
+  facet_wrap(~econ_class)
+gg_plot2
+```
+
+What we see here are some potential trends:
+
+  - It seems that more high income countries are reducing emissions more consistently in the 2010-2020 time series
+  
+  - It seems that upper middle income countries, already the worst performers, may be doing even worse in the more recent time series
+  
+  - Emissions reduction trends seem fairly consistent in the low and lower middle income countries. However, it seems that lower middle income countries have more consistently produced economic growth in the 2010-2020 time series.
+  
+Now we can look at the countries that have consistently reduced emissions and increased GDP in the 2010-2020 time series. I have set the threshold at 7 years of emissions reductions and 7 years of GDP growth.
+
+```{r recent_gg_countries}
+possible_recent_green_growth <- recent_emissions_reductions %>% 
+  filter(years_reduced > 7 & years_econ_growth > 7) %>% 
+  arrange(desc(years_reduced))
+head(possible_recent_green_growth)
+unique(possible_recent_green_growth$country)
+```
+
+Now, we have a list of 23 countries that initially appear to be trending towards green growth from 2010-2020. We can see that the original 8 from the full time series still remain, along with 15 additional countries.
+
+Here, I will quickly check to see if any trends by economic classification exist among these 23 countries.
+
+```{r recent_gg_bar_plot}
+possible_recent_green_growth %>% 
+  ggplot(aes(x = econ_class)) +
+  geom_bar()
+```
+
+This also reflects the initial observation that the upper middle income countries are lagging behind the rest of the economic classifications with respect to emissions reductions.
+
+Now, I will look closer at the country-by-country trends. First, I will create a time series that covers both the countries and years of interest only.
+
+```{r recent_gg_time_series}
+recent_gg_time_series <- national_ghg_emissions %>% 
+  filter(country %in% possible_recent_green_growth$country & year >= 2010 & year <= 2020)
+```
+
+I will now use this new data frame to assess the changes in GDP and GHGs per capita for each country for the 2010 to 2020 time series.
+
+```{r recent_gg_gdp_gdp_ghg_plots}
+recent_gg_time_series %>%
+  ggplot(aes(x = year, y = gdp_2015_usd)) +
+  geom_bar(stat = "identity", color = "grey") +
+  facet_wrap(~ country, scales="free") +
+  labs(y = "GDP 2015 (USD)") +
+  theme_bw()
+  
+recent_gg_time_series %>%
+  ggplot(aes(x = year, y = total_ghg_per_capita)) +
+  geom_line(color = "red") +
+  facet_wrap(~ country, scales = "free") +
+  labs(y = "Total GHG Per Capita (Mt CO2-eq)") +
+  theme_bw()
+```
+
+Here we can see most of the countries in the dataset have consistently reduced emissions per capita. However, Benin, Burkina Faso, Nicaragua, and Papua New Guinea have not.
+
+Moreover, the DRC has reduced for much of the time series yet 2020 per capita emissions remain above 2010 levels.
+
+This only assessed GHG emissions per capita. While probably the single most important indicator of emissions reduction activities on a national level, if it cannot keep up with population increases then it is unambigously not enough to reduce emissions in line with the Paris Agreement.
+
+Thus, as before, I also want to see how these countries' overall national emissions profiles have evolved across the 2010-2020 time series.
+
+```{r recent_gg_totalghg_plot}
+recent_gg_time_series %>%
+  ggplot(aes(x = year, y = total_ghg)) +
+  geom_line(color = "red") +
+  facet_wrap(~ country, scales = "free") +
+  labs(y = "Total GHGs (Mt CO2-eq)") +
+  theme_bw()
+```
+
+Here, we see that the countries that were already indicated as not having consistently reduced GHG emissions per capita - Benin, Burkina Faso, Nicaragua, and Papua New Guinea - also have increased their total emissions from 2010-2020.
+
+In addition to these countries, several others have also increased their total emissions including: Afghanistan, Cameroon, Cote d'Ivoire, the DRC, Gabon, Jordan, Nauru, and Uganda.
+
+In total, this means of the list of 23 countries, just over half - 12 - did not actually have consistent reductions in GHGs per capita and/or total GHGs. However, these countries are predominantly low to low middle income countries, which does not actually indicate substantial issues as the majority of emissions come from wealthier nations, and therefore the vast majority of emissions reductions, should come from these nations.
+
+It becomes even more apparent when you consider the fact that wealthy countries typically have GHG emissions per capita orders of magnitude greater than that of lower income countries. This is even apparent in the previously displayed graphs by country of GHG emissions per capita.
+
+From here, we can go a bit deeper into the emissions profiles of these countries by factoring in the emissions embedded in trade.
+
+```{r recent_gg_tradeghg_plot}
+recent_gg_time_series <- recent_gg_time_series %>%
+  mutate(total_ghgs_with_trade = if_else(is.na(trade_co2),total_ghg, total_ghg + trade_co2))
+
+recent_gg_time_series %>%
+  ggplot(aes(x = year, y = total_ghgs_with_trade)) +
+  geom_line(color = "red") +
+  facet_wrap(~ country, scales = "free") +
+  labs(y = "Total GHG (Mt CO2-eq") +
+  theme_bw()
+```
+
+Based on the total emissions, several countries were already deemed not to be very much on the path towards green growth, though they were mainly lower income and lower emitting countries.
+
+When trade is factored into GHGs, Switzerland can no longer really be considered to be reducing GHGs effectively, as their 2020 emissions with trade embedded are still higher than that of 2010 but lower than their peak emissions.
+
+Another potential country that may not truly be reducing emissions is Ireland, as they only have a very recent reduction in trade-embedded GHG emissions. However, as Ireland did show definitive trends of reducing emissions across the 2000-2020 time series, they must be considered as potentially on the path towards green growth. 
+
+Thus, the following countries can be considered to be potentially on the path towards green growth based on the evaluations of the following parameters across the 2000-2020 and/or 2010-2020 time series:
+
+- Economic growth as measured by GDP in 2015 USD
+
+- Per capita GHG emissions in CO2-eq as estimated by internationally accepted methdologies
+
+- Total GHG emissions in CO2-eq as estimated by internationally accepted methdologies
+
+- Total GHG emissions in CO2-eq, inclusive of emissions embedded in trade (the emissions produced via the production occurring outside a country's national territory of goods consumed within the country's national territory)
+
+```{r possible_gg_countries}
+possible_gg_countries_list <- c("Denmark","East Timor", "Iceland", "Ireland", 
+                                "Luxembourg", "Madagascar", "Netherlands", 
+                                "North Macedonia", "Sweden", "United Kingdom")
+possible_gg_countries_list
+```
+
+### 5. Forecasting GHG Emissions Using an ARIMA Model
+While it is valuable to now have this list of 10 countries that have shown progress towards green growth on the basis of four key indicators, GDP and three different metrics of national GHG emissions, there are several questions that arise. These include the following:
+
+- What are these countries doing to have consistent emissions reductions while sustaining GDP growth?
+
+- Are these countries taking similar or different actions to achieve these results?
+
+- What type of policies, if any, may be contributing to these results?
+
+- Are these results actually indicative of green growth?
+
+- Do these results suggest that these countries will achieve commitments set in the Paris Agreement, mainly:
+
+  - Reduction of emissions by 45% from 2010 levels by 2030 
+  
+  - Achievement of net-zero by 2050
+  
+All of these questions would require significantly more investigation to properly assess. While I am interested in doing so, this will likely require a separate and more in-depth project. However, one thing I recognised that I could do was to see if the current trends of emissions reductions suggest that acheiving Paris Agreement commitments are feasible in these countries.
+
+After some consideration, I decided that, for the purpose of this project, I would make these projections using an AutoRegressive Integrated Moving Average (ARIMA) model, which is a common method for forecasting future values based on past values within time series data.
+
+Although this is simplistic as there are most definitely additional variables to consider, I see this as an initial step that I intend to build on in the future. One consideration for the future would be to use an ARIMAX model, which can consider exogenous variables and could allow for a more nuanced forecasting of national GHG emissions.
+
+In order to implement an ARIMA model for forecasting GHG emissions, I use the following R package:
+
+```{r load_forecast_package}
+library(forecast)
+```
+
+First, I need to gather the data of interest. While total GHG emissions are the measure for which countries have committed to reductions under the Paris Agreement, I maintain that emissions estimates including those embedded in trade presents a more complete picture of how a country is producing GHG emissions via its activities and, especially, is a better measurement for assessing green growth, for which changing consumption patterns is fundamental.
+
+```{r ghg_emissions_forecast_data}
+national_ghg_emissions_forecast <- national_ghg_emissions %>%
+  filter(country %in% possible_gg_countries_list & year >= 2000 & year <= 2020) %>% 
+  mutate(total_ghgs_with_trade = if_else(is.na(trade_co2),total_ghg, total_ghg + trade_co2))
+```
+
+Now, I will use this data to produce forecasts of national GHG emissions using an ARIMA model for the ten countries identified as potentially on the path towards achieving green growth. 
+
+The output of the following code will produce a plot for each country that shows the results of its ARIMA forecast. This forecast includes the point forecast in a deep and light blue as a line, along with an 80% likelihood interval in light violet and a 95% interval in grey. The output will additionally produce anual values for the point forecast along with the upper and lower values for each of the 80% and 95% intervals.
+
+As the outputs of the results are long, I will summarize the results here:
+
+- Most countries, despite reducing emissions frequently across the time series, are not forecasted to significantly reduce emissions. Only Denmark, Timor-Leste, and the United Kingdom have forecasts that include continuous year-on-year reductions in GHG emissions
+
+- Only Timor-Leste has a point forecast that achieves net-zero.
+
+- In addition to Timor-Leste, both Denmark and the United Kingdom have zero emissions within the 80% forecast interval.
+
+- Additionally, Sweden has zero emissions by 2050 within the 95% forecast interval.
+
+Overall, these forecasts show that even among the countries with the most sustained reductions in GHG emissions and GDP growth from 2000-2020, almost all are not likely to achieve net-zero by 2050.
+
+
+```{r ghg_emissions_forecast1}
+for (country in unique(national_ghg_emissions_forecast$country)) {
+  country_data <- national_ghg_emissions_forecast[national_ghg_emissions_forecast$country == country, ]
+  emissions_model <- auto.arima(country_data$total_ghgs_with_trade)
+  emissions_forecasts <- forecast(emissions_model, h = 30)  
+  print(
+    plot(emissions_forecasts,
+         main = paste(country, "GHG Emissions Forecast"),
+         xlab = "Years (0=2000, 50=2050)",
+         ylab = "Total GHGs with Trade (Mt CO2-eq)")
+  )
+}
+```
+
+The results of these forecasts can be summarized as follows. For each, the estimated GHG emissions in 2050 are provided, including the point forecast and the upper and lower estimates for the 80% and 95% intervals:
+
+**Denmark**
+
+  - *2050 Point Forecast:* 18.4170 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* -4.1389 - 40.9728 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* -16.0992 - 52.9132 Mt CO2-eq
+  
+Denmark's forecast indicates trends towards significant reductions, but the point forecast still is well above net-zero, at 18.4170 Mt CO2-eq. Effectively, the forecast indicates that Denmark is making progress but that net-zero is not likely to be achieved by 2050 based on its current trajectory.
+  
+**Timor-Leste (East Timor)**
+
+  - *2050 Point Forecast:* -10.19 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* -39.4286 - 19.0486 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* -54.9065 - 34.5265 Mt CO2-eq
+  
+Timor-Leste's emissions are already very low compared to most countries. The ARIMA model forecasts Timor-Leste to substantially reduce emissions past zero to become a carbon sink country, with forecasted emissions in 2050 of -10.19 Mt CO2-eq. 
+  
+**Iceland**
+
+  - *2050 Point Forecast:* 3.27 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* 1.9118 - 4.6282 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* 1.1928 - 5.3472 Mt CO2-eq
+  
+Although Iceland seems to be, at least visually, on a trajectory of reducing emissions, the ARIMA model does not forecast the country to reduce emissions in any significant manner based on the 2000-2020 time series data. Even the lower bound of the 95% interval is above 0, indicating a less than 5% probability, based on current trends, that Iceland would achieve net-zero by 2050.
+  
+**Ireland**
+
+  - *2050 Point Forecast:* 75.157 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* 36.0346 - 114.2794 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* 15.3245 - 134.9895 Mt CO2-eq
+  
+Ireland's point forecast does not project reductions in emissions. Even the lower bound of the 95% interval forecasts emissions well above 0, indicating that Ireland is not currently trending towards achieving net-zero by 2050.
+
+**Luxembourg**
+
+  - *2050 Point Forecast:* 11.2211 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* 8.3478 - 14.0944 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* 6.8268 - 15.6154 Mt CO2-eq
+  
+Luxembourg's forecasted emissions indicate that the country is not trending towards net-zero by 2050, with the point forecast actually indicating increased emissions from 2020 levels before leveling off. 
+
+**Madagascar**
+
+  - *2050 Point Forecast:* 41.662 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* 16.8917 - 66.4323 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* 3.7790 - 79.5450 Mt CO2-eq
+  
+Madagascar's forecasted emissions also indicate that there is not a trend towards reductions, with the point forecasts indicating level emissions throughout the forecast horizon. However, the forecasts are very wide, with the 95% interval indicating that the 2050 emissions may approach zero or result in a nearly 100% increase in emissions from 2020 levels.
+
+**Netherlands**
+
+  - *2050 Point Forecast:* 201.4410 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* 162.5126 - 240.3695 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* 141.9052 - 260.9769 Mt CO2-eq
+  
+The Netherlands' emissions point forecast shows an increase in emissions from 2020 levels. Even the lower bound of the 95% interval indicates that The Netherlands is not forecasted to come close to net-zero by 2050.
+
+**North Macedonia**
+
+  - *2050 Point Forecast:* 9.77 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* 5.7687 - 13.7713 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* 3.6506 - 15.8894 Mt CO2-eq
+  
+North Macedonia is not forecasted to achieve net-zero by 2050, with its point forecast indicating no increase nor decrease in emissions from 2020 levels. Moreover, the lower bound of the 95% interval is still above 0.
+
+**Sweden**
+
+  - *2050 Point Forecast:* 58.8 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* 7.6632 - 109.9368 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* -19.4070 - 137.0070 Mt CO2-eq
+  
+Sweden's point forecast for GHG emissions indicate consistent emissions from 2020 levels, indicating that the forecast does not indicate a high probability of achieving net-zero by 2050. However, while the 80% interval's lower bound is above 0, the lower bound of the 95% interval is well below 0 emissions, indicating that there is a slight, yet unlikely to materialize, indication that Sweden could achieve net-zero by 2050 based on its current trajectory of national GHG emissions.
+
+**United Kingdom**
+
+  - *2050 Point Forecast:* 75.8985 Mt CO2-eq
+  
+  - *2050 80% Interval Forecast:* -78.3069 - 230.1039 Mt CO2-eq
+  
+  - *2050 95% Interval Forecast:* -159.9383 - 311.7353 Mt CO2-eq
+  
+The United Kingdom's forecast indicates that the country is on a strong path towards reducing GHG emissions in the 30-year horizon. Even the upper bound of the 95% interval forecasts substantial reductions from 2020 emissions levels. However, the forecast also indicates that these reductions are unlikely to be enough to reach net-zero emissions by 2050, though the lower bound of even the 80% interval is substantially below 0.
+
+As Denmark, Timor-Lest, and the United Kingdom are the only countries among this group with forecasted emissions reductions, it will also be helpful to put these reductions into context. One key way to do this is by seeing where these countries rank in terms of their contributions to global GHG emissions.
+
+```{r total_emissions_rankings}
+national_ghg_emissions <- national_ghg_emissions %>% 
+  filter(year >= 2000 & year <= 2020) %>% 
+  mutate(total_ghgs_with_trade = if_else(is.na(trade_co2),total_ghg, total_ghg + trade_co2))
+
+emissions_2000_to_2020_rankings <- national_ghg_emissions %>% 
+  group_by(country) %>% 
+  summarize(econ_class=first(econ_class), 
+            total_emissions = sum(total_ghgs_with_trade, na.rm = TRUE)) %>%
+  arrange(desc(total_emissions))
+head(emissions_2000_to_2020_rankings)
+```
+
+Here, I have created a ranking of GHG emissions including emissions embedded in trade by country. Now I will use this to get more context into the relatively positive results of Denmark, Timor Leste, and the United Kingdom.
+
+```{r total_emissions_rankings2}
+potential_net_zero_countries <- c("Denmark", "East Timor", "United Kingdom")
+row_numbers <- which(emissions_2000_to_2020_rankings$country %in% potential_net_zero_countries)
+net_zero_overall_ranks <- data.frame(country = emissions_2000_to_2020_rankings$country[row_numbers],
+                                     ranking = row_numbers)
+net_zero_overall_ranks
+```
+
+From this ranking list, it is clear these countries occupy very different places in the rankings. While the United Kingdom is one of the world's top emitters, Denmark is around the middle while Timor-Leste is one of the world's lowest emitting countries. Thus, it is unlikely these countries' forecasted trends towards emissions reductions has much to do with their current levels of emissions. And while the United Kingdom's point forecast does not achuieve net-zero by 2050, the fact that such a high emitter is trending in the right direction is a positive sign.
+
+### 6. Forecasting Emissions for the Top 20 Emitters
+Finally, I thought it would be interesting to see how the top 20 emitting countries, as per their cumulative CO2-eq emissions, factoring in trade, over the 2000-2020 time series, are projected using the ARIMA model. 
+
+First, I want to use the list I already created of countries and their cumulative emissions over the time series to understand, proportionally, how countries are contributing to global GHG emissions. This is important as, ultimately, climate change is driven by global emissions.
+
+```{r emissions_proportions}
+emissions_2000_to_2020_rankings <- emissions_2000_to_2020_rankings %>% 
+  mutate(proportion = total_emissions / sum(total_emissions))
+head(emissions_2000_to_2020_rankings, 20)
+```
+
+While it is widely known, what is highlighted here is just how much the highest-emitting countries contribute to global emissions. China and the United States alone have produced 34.1% of the world's emissions from 2000-2020, more than one-third of all emissions.
+
+To see the distribution of countries in terms of their total emissions over the 2000-2020 time series, I will make a histogram and a box-and-whisker plot.
+
+```{r total_emissions_histogram}
+emissions_2000_to_2020_rankings %>% 
+  ggplot(aes(total_emissions)) +
+  geom_histogram() +
+  theme_bw()
+
+emissions_2000_to_2020_rankings %>% 
+  ggplot(aes(proportion)) +
+  geom_boxplot() +
+  theme_bw()
+```
+
+We see here that it is clear that a few countries are emitting very large proportions of GHGs, while most countries are not major emitters. Even the box-and-whisker plot considers the top emitters to be outliers compared to the rest of the world. Below, I calculate the percentage of global emissions produced by the top 20 emitters.
+
+```{r top_20_emitters}
+top_20 <- seq(1, 20, 1)
+top_20_emitters <- data.frame(country=emissions_2000_to_2020_rankings$country[top_20])
+
+emissions_2000_to_2020_rankings %>% 
+  filter(country %in% top_20_emitters$country) %>% 
+  summarize(top_20_proportion = 100*sum(proportion))
+```
+ 
+Here, we see that just these top 20 emitter produced 72.9%, nearly three-quarters, of global emissions from 2000-2020. As a result, this justifies my idea to produce forecasts for each of these top 20 emitters to gain an assessment of the current trajectory towards achieving, globally, net-zero emissions by 2050.
+
+The following code will generate forecasts using an ARIMA model for each of the top 20 emitting countries.
+
+To summarize the results:
+
+- Most of the top 20 emitters are not forecasted to reduce emissions over the 30-year horizon
+
+- China, India, Iran, Japan, Saudi Arabia are forecasted to increase their emissions, with all but Japan forecasted to have substantial increases.
+
+- Argentina, France, Germany, United Kingdom are forecasted to reduce their emissions over the 30-year horizon, but are not forecasted to achieve net-zero.
+
+- Canada is the only country among this group forecasted to achieve net-zero by 2050.
+
+```{r ghg_emissions_forecast2}
+national_ghg_emissions_forecast2 <- national_ghg_emissions %>%
+  filter(country %in% top_20_emitters$country & year >= 2000 & year <= 2020) %>% 
+  mutate(total_ghgs_with_trade = if_else(is.na(trade_co2),total_ghg, total_ghg + trade_co2))
+
+
+for (country in unique(national_ghg_emissions_forecast2$country)) {
+  country_data <- national_ghg_emissions_forecast2[national_ghg_emissions_forecast2$country == country, ]
+  emissions_model <- auto.arima(country_data$total_ghgs_with_trade)
+  emissions_forecasts <- forecast(emissions_model, h = 30)  
+  print(
+    plot(emissions_forecasts,
+         main = paste(country, "GHG Emissions Forecast"),
+         xlab = "Years (0=2000, 50=2050)",
+         ylab = "Total GHGs with Trade (Mt CO2-eq)")
+  )
+}
+```
+
+## Conclusions
+Overall, the results of this analysis highlight the urgent need for greater action to address climate change and, in particular, with respect to GHG emissions reductions. Ultimately, while a few countries were identified as consistently reducing GHG emissions and increasing GDP on an annual basis over the course of the 2000-2020 time series, it was also observed that there are clear deficits when it comes to countries being on track to achieve net-zero by 2050.
+
+Forecasts using an ARIMA model identified only two countries that are predicted to achieve net-zero by 2050 based on current trends - Canada and Timor-Leste, though it should be noted that not all countries were forecasted during this activity. However, forecasts were generated for each of the top 20 GHG emitting countries, based on cumulative emissions over the 2000-2020 time period. Of these top 20 emitters, only Canada was forecasted to achieve net-zero while just four other countries - Argentina, France, Germany, and the United Kingdom - are projected to reduce emissions over the 30-year horizon. Moreover, the top 20 emitting countries of China, India, Iran, Japan, and Saudi Arabia are forecasted to increase their emissions over the 30-year horizon.
+
+These results, while limited due to the fact that the analyses were mainly restricted to the assessments of just a few parameters that measure national GHG emissions, GDP, and population, suggest that there are serious gaps towards the achievement of net-zero by 2050. Perhaps even more concerning is that several top 20 emitting countries are actually forecasted to increase their emissions. When it comes to the cases of China and India, the number two and three emitters globally, this even reflects comments made by leaders of the two countries. China's president Xi Jinping stated that the country has the "[aim to have CO2 emissions peak before 2030 and achieve carbon neutrality before 2060](https://www.iea.org/reports/an-energy-sector-roadmap-to-carbon-neutrality-in-china)" while [Indian Prime Minister Narenda Modi has targeted 2070 as the country's target for net-zero](https://climateactiontracker.org/countries/india/net-zero-targets/). While both indicate there may be emissions reduction efforts in the future, they reflect a relative lack of action across the world regarding emissions reduction efforts.
+
+Nevertheless, there are a few countries that, at the very least, show indications of taking the lead towards the achievement of net-zero. As mentioned, Canada and Timor-Leste are both forecasted to achieve net-zero by 2050. The case of Canada is especially important as the ninth highest emitting country globally from 2000-2020. Moreover, Argentina, France, Germany, and the United Kingdom are forecasted to reduce emissions over the next 30 years, indicating that some efforts may have already been made. These examples are worth exploring further to identify the source of emissions reductions and if any policies or specicific actions can be linked to these emissions reductions trends.
+
+Moreover, it is likely important to review the trends from the rest of the world, as I only developed emissions forecasts for just under 30 countries. It is likely that there are other countries making significant efforts towards emissions reductions that have them either on track to achieve net-zero or, at least, on track to reduce emissions over the next few decades. It will be additionally important to identify these countries and assess what they are doing. At the same time, it can be valuble to analyse the activities of the countries that are continuing to increase emissions to identify possible reasons, especially in the case of countries that are high emitters. 
+
+It should, however, be noted that per capita emissions need to be considered in this case as per capita emissions are a better indicator of how a country is truly performing in terms of its emissions profiles - it is not exactly fair to consider, for example, China and India, ranked 2 and 3 in total emissions and both with populations of around 1.4 billion people, as emitting on the same scale as the United States, ranked first in total emissions with a population of just over 300 million people.
+
+In addition, I also intend to explore a more robust forecasting method, likely using ARIMAX. ARIMAX allows for the inclusion of exogenous variables that contribute to the forecasted variable. In this case, I would aim to include key variables that contribute to GHG emission production to refine the forecasts. The analyses above that go deeper into what specific countries are doing to both reduce and/or increase emissions can be helpful for the identification of relevant exogenous variables to include in an ARIMAX model.
+
+Overall, the results of this analysis present interesting conclusions that largely align with the idea that most countries and organizations simply are not yet doing enough to reduce emissions. While there most definitely is still room to improve emissions reduction efforts through policymaking and the adoption of new and updated technologies, these results do call into question the viability of green growth as an effective strategy for reducing emissions on a timespan that can limit the impacts of climate change from producing even more serious negative impacts on economies and populations that are already ocurring. Additionally, it may need to be considered as a strategy reserved for lower-income countries that have less developed economies, while larger economies may need to reconsider the idea that they can simultaneously reduce emissions to net-zero by 2050 and maintain GDP growth.
+
+I look forward to continuing to explore and expand this dataset, and to answer additional questions about how the world can ultimately veer off the current path of climate catastrophe.
+
+## References
+Ritchie, Hannah, Max Roser, Edouard Mathieu, Bobbie Macdonald, and Pablo Rosado. 2023. “CO₂ and Greenhouse Gas Emissions.” Our World in Data. https://github.com/owid/co2-data?tab=readme-ov-file.
+
+The World Bank. 2024a. “The World by Income and Region.” The World Bank. https://datatopics.worldbank.org/world-development-indicators/the-world-by-income-and-region.html.
+
+The World Bank. 2024b. “GDP (Constant 2015 US$).” The World Bank. https://data.worldbank.org/indicator/NY.GDP.MKTP.KD.
+
+The World Bank. 2024c. “GDP (Constant LCU).” The World Bank. https://data.worldbank.org/indicator/NY.GDP.MKTP.KN.
+
+The World Bank. 2024d. “GDP (Current US$).” The World Bank. https://data.worldbank.org/indicator/NY.GDP.MKTP.CD.
+
+The World Bank. 2024e. “GDP, PPP (Constant 2017 International $).” The World Bank. https://data.worldbank.org/indicator/NY.GDP.MKTP.PP.KD.
+
