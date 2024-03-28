@@ -11,3 +11,7 @@ Within this repository, I have hosted the following files:
 - **ghgs_time_series_9.csv** - This is the csv output of the dataset I developed through SQL queries. I also imported this dataset into R for further analyses.
 - **national_ghg_emissions_exploratory.Rmd** - This is the raw version of the R Markdown file I developed that presents the analyses and forecasts I conducted, including the code I wrote and executed, descriptions of the code, interpretations of the analyses and forecasts, and additional background information.
 - **national_ghg_emissions_exploratory.html** - This is the HTML output of the R Markdown file. It can be accessed at the following link on GitHub Pages: [https://sjkamens.github.io/National-GHG-Emissions-Project/national_ghg_emissions_exploratory.html](https://sjkamens.github.io/National-GHG-Emissions-Project/national_ghg_emissions_exploratory.html)
+
+Outside of this repository, I have published the following dashboards on Tableau, linked below:
+- [Mapped visualizations of total and per capita GHG Emissions by country and year](https://public.tableau.com/app/profile/seth.kamens/viz/NationalGHGEmissionsv1/Dashboard1)
+- [Line chart of country-by-country evolution of GHG emissions per capita over time and a bar chart showing country-by-country cumulative emissions over time](https://public.tableau.com/app/profile/seth.kamens/viz/NationalGHGEmissionsv1/NationalGHGEmissionsOverTime)
